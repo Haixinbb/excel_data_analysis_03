@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>智能分析工作台 · 双环节极简版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js">
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet">
+    <style>
+        /* 样式保持不变，省略...（与之前完全一致） */
+        :root {
+            --ink: #17201a;
+            --muted: #657064;
+            --line: #dce4dc;
+            --panel: rgba(255, 255, 251, 0.88);
+            --panel-solid: #fffffb;
+            --canvas: #eef3eb;
+            --field: #f7faf4;
+            --green: #1f7a58;
+            --green-dark: #155c42;
+            --amber: #c98524;
+            --rose: #b64b62;
+            --violet: #6251b7;
+            --shadow: 0 20px 55px rgba(27, 39, 28, 0.12);
+            --soft-shadow: 0 10px 28px rgba(27, 39, 28, 0.08);
+            --radius: 8px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html { min-height:100%; background:var(--canvas); }
+        body {
+            min-height:100vh; color:var(--ink); font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+            padding:30px clamp(18px,4vw,48px) 46px;
+            background: linear-gradient(120deg, rgba(31,122,88,0.10), transparent 34%),
+                        linear-gradient(240deg, rgba(201,133,36,0.10), transparent 36%),
+                        radial-gradient(circle at 25% 8%, rgba(255,255,255,0.92), transparent 30%),
+                        var(--canvas);
+        }
+        body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:0.34; background-image: linear-gradient(rgba(23,32,26,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(23,32,26,0.055) 1px, transparent 1px); background-size:42px 42px; mask-image:linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 82%); }
+        .app-container { position:relative; z-index:1; max-width:1360px; margin:0 auto; }
+        .global-header { display:grid; gap:8px; margin-bottom:24px; padding:18px 0 8px; }
+        .global-header h1 { color:var(--ink); font-size:clamp(1.85rem,2.5vw,2.85rem); line-height:1.05; font-weight:750; }
+        .global-header p { max-width:760px; color:var(--muted); font-size:0.95rem; line-height:1.7; }
+        .stage-card { position:relative; margin-bottom:22px; overflow:hidden; border:1px solid rgba(220,228,220,0.88); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); backdrop-filter:blur(18px); animation:cardIn 420ms ease both; }
+        .stage-card:nth-of-type(3) { animation-delay:80ms; }
+        .stage-card::before { content:""; position:absolute; inset:0 0 auto; height:4px; background:linear-gradient(90deg, var(--green), var(--amber), var(--violet)); }
+        .card-header { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:22px 26px 18px; border-bottom:1px solid var(--line); background:linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.42)); flex-wrap:wrap; }
+        .card-title { display:flex; align-items:center; gap:12px; min-width:240px; }
+        .card-title h2 { color:var(--ink); font-size:clamp(1.15rem,1.8vw,1.45rem); font-weight:720; }
+        .stage-badge { display:inline-flex; align-items:center; min-height:26px; padding:4px 10px; border:1px solid rgba(31,122,88,0.18); border-radius:999px; color:var(--green-dark); background:rgba(31,122,88,0.09); font-size:0.72rem; font-weight:700; white-space:nowrap; }
+        .config-trigger { min-height:38px; padding:8px 14px; border:1px solid rgba(23,32,26,0.12); border-radius:var(--radius); color:var(--ink); background:#fffef8; box-shadow:0 1px 0 rgba(255,255,255,0.9) inset; cursor:pointer; display:inline-flex; align-items:center; gap:7px; font-size:0.82rem; font-weight:700; transition:transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease; }
+        .config-trigger:hover { border-color:rgba(31,122,88,0.35); background:#ffffff; box-shadow:var(--soft-shadow); transform:translateY(-1px); }
+        .card-body { padding:24px 26px 26px; }
+        .form-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:16px; margin-bottom:22px; }
+        .form-group { min-width:0; }
+        .form-group label { display:block; margin-bottom:8px; color:#4d5c51; font-size:0.76rem; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; }
+        select, input[type="file"], input[type="text"], input[type="password"], input[type="number"], textarea, .fake-select { width:100%; border:1px solid rgba(23,32,26,0.13); border-radius:var(--radius); background:var(--field); color:var(--ink); font:inherit; font-size:0.9rem; outline:none; transition:border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+        select, input[type="text"], input[type="password"], input[type="number"], .fake-select { min-height:42px; padding:9px 12px; }
+        input[type="file"] { padding:8px; cursor:pointer; }
+        input[type="file"]::file-selector-button { margin-right:10px; border:0; border-radius:6px; padding:8px 12px; color:#fff; background:var(--green); font-weight:750; cursor:pointer; transition:background 160ms ease, transform 160ms ease; }
+        input[type="file"]::file-selector-button:hover { background:var(--green-dark); transform:translateY(-1px); }
+        select:hover, input:hover, textarea:hover { background:#fffefa; border-color:rgba(31,122,88,0.30); }
+        select:focus, input:focus, textarea:focus { background:#fffefa; border-color:var(--green); box-shadow:0 0 0 4px rgba(31,122,88,0.13); }
+        select:disabled, button:disabled { cursor:not-allowed; opacity:0.52; transform:none !important; box-shadow:none !important; }
+        select[multiple] { min-height:112px; padding:7px; }
+        select[multiple] option { border-radius:6px; padding:7px 8px; margin:2px 0; }
+        .multi-select-hint { margin-top:7px; color:var(--muted); font-size:0.74rem; line-height:1.45; }
+        .action-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0 16px; }
+        .btn { min-height:38px; border:1px solid transparent; border-radius:var(--radius); padding:8px 15px; color:var(--ink); background:#eef3eb; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-size:0.86rem; font-weight:760; line-height:1; transition:transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease; }
+        .btn i, .config-trigger i { font-size:1.05rem; }
+        .btn:hover { transform:translateY(-1px); box-shadow:var(--soft-shadow); }
+        .btn:active, .config-trigger:active { transform:translateY(0); }
+        .btn-primary { color:#fff; background:var(--green); box-shadow:0 10px 20px rgba(31,122,88,0.18); }
+        .btn-primary:hover { background:var(--green-dark); }
+        .btn-purple { color:#fff; background:var(--violet); box-shadow:0 10px 20px rgba(98,81,183,0.18); }
+        .btn-purple:hover { background:#514297; }
+        .btn-outline { border-color:rgba(23,32,26,0.13); background:#fffef8; }
+        .btn-outline:hover { border-color:rgba(31,122,88,0.28); background:#ffffff; }
+        #statusMsg1 { color:var(--muted) !important; font-size:0.78rem !important; }
+        .progress-wrapper { margin:12px 0 18px; }
+        .progress-bar { position:relative; height:9px; overflow:hidden; border-radius:999px; background:rgba(23,32,26,0.08); }
+        .progress-fill { width:0%; height:100%; border-radius:inherit; background:linear-gradient(90deg, var(--green), #45a177); box-shadow:0 0 18px rgba(31,122,88,0.32); transition:width 240ms ease; }
+        #progressFill2 { background:linear-gradient(90deg, var(--violet), var(--amber)) !important; box-shadow:0 0 18px rgba(98,81,183,0.30); }
+        .log-area { max-height:150px; overflow-y:auto; margin:16px 0 12px; border:1px solid rgba(23,32,26,0.12); border-radius:var(--radius); padding:13px 15px; color:#d8f2df; background:#142019; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05); font-family:"SF Mono","Cascadia Code",Menlo,monospace; font-size:0.74rem; line-height:1.65; }
+        .log-area::-webkit-scrollbar, .table-wrapper::-webkit-scrollbar, .modal-body::-webkit-scrollbar { width:10px; height:10px; }
+        .log-area::-webkit-scrollbar-thumb, .table-wrapper::-webkit-scrollbar-thumb, .modal-body::-webkit-scrollbar-thumb { border:3px solid transparent; border-radius:999px; background:rgba(31,122,88,0.42); background-clip:content-box; }
+        .table-wrapper { max-height:320px; overflow:auto; border:1px solid rgba(23,32,26,0.12); border-radius:var(--radius); background:#fffef8; box-shadow:0 1px 0 rgba(255,255,255,0.75) inset; }
+        table { width:100%; min-width:680px; border-collapse:separate; border-spacing:0; font-size:0.78rem; }
+        th, td { padding:11px 12px; border-bottom:1px solid rgba(23,32,26,0.08); text-align:left; vertical-align:top; }
+        th { position:sticky; top:0; z-index:2; color:#334237; background:#edf4e9; font-weight:800; box-shadow:0 1px 0 rgba(23,32,26,0.08); }
+        tbody tr:nth-child(even) td { background:rgba(239,244,233,0.44); }
+        tbody tr:hover td { background:rgba(31,122,88,0.08); }
+        .modal-mask { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(15,21,17,0.44); backdrop-filter:blur(10px); visibility:hidden; opacity:0; transition:visibility 180ms ease, opacity 180ms ease; }
+        .modal-mask.active { visibility:visible; opacity:1; }
+        .modal-container { width:min(600px,100%); max-height:88vh; overflow:hidden; border:1px solid rgba(255,255,255,0.74); border-radius:var(--radius); background:var(--panel-solid); box-shadow:0 30px 90px rgba(0,0,0,0.30); transform:translateY(10px) scale(0.98); transition:transform 180ms ease; }
+        .modal-mask.active .modal-container { transform:translateY(0) scale(1); }
+        .modal-header { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:18px 20px; border-bottom:1px solid var(--line); background:#f4f8ef; }
+        .modal-header h3 { color:var(--ink); font-size:1.08rem; font-weight:780; line-height:1.35; }
+        .modal-body { max-height:64vh; overflow-y:auto; padding:20px; }
+        .modal-body .form-group + .form-group { margin-top:15px; }
+        .modal-footer { display:flex; justify-content:flex-end; gap:10px; padding:15px 20px; border-top:1px solid var(--line); background:#fbfcf7; }
+        .close-icon { width:34px; height:34px; border-radius:var(--radius); color:var(--muted); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:1.35rem; transition:color 160ms ease, background 160ms ease, transform 160ms ease; }
+        .close-icon:hover { color:var(--rose); background:rgba(182,75,98,0.10); transform:rotate(6deg); }
+        textarea { min-height:118px; padding:12px; resize:vertical; font-family:"SF Mono","Cascadia Code",Menlo,monospace; font-size:0.82rem; line-height:1.6; }
+        .info-badge { display:inline-flex; max-width:100%; border:1px solid rgba(31,122,88,0.14); border-radius:var(--radius); padding:7px 10px; color:#405144; background:rgba(31,122,88,0.08) !important; font-size:0.76rem; line-height:1.45; }
+        hr { margin:14px 0; border:0; border-top:1px solid var(--line); }
+        @keyframes cardIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+        @media (max-width:760px) { body { padding:18px 12px 30px; } .global-header { margin-bottom:16px; padding-top:8px; } .card-header,.card-body { padding-left:16px; padding-right:16px; } .card-title { width:100%; align-items:flex-start; flex-direction:column; gap:8px; } .config-trigger,.action-bar .btn { width:100%; } .action-bar { align-items:stretch; } #statusMsg1 { width:100%; margin-left:0 !important; } .modal-footer { flex-direction:column-reverse; } .modal-footer .btn { width:100%; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="global-header">
+            <h1>📋 VOC改善挖掘工作台</h1>
+            <p>用户关注点 · 部位现象 · 改善机会点</p>
+        </div>
+
+        <!-- 第一环节卡片 -->
+        <div class="stage-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <h2>环节一 · 改善机会点挖掘</h2>
+                    <span class="stage-badge">AI逐条理解 · 8维输出</span>
+                </div>
+                <button class="config-trigger" id="openStage1ConfigBtn">
+                    <i class="ri-settings-3-line"></i> 模型配置 & 提示词
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>📂 上传 CSV</label>
+                        <input type="file" id="csvFileInput1" accept=".csv">
+                    </div>
+                    <div class="form-group">
+                        <label>🔑 唯一标识字段</label>
+                        <select id="idFieldSelect1" disabled></select>
+                    </div>
+                    <div class="form-group">
+                        <label>📝 待处理字段</label>
+                        <select id="textFieldSelect1" disabled></select>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <button id="startProcessBtn1" class="btn btn-primary" disabled><i class="ri-play-circle-line"></i> 开始批量处理</button>
+                    <button id="cancelProcessBtn1" class="btn btn-outline" disabled><i class="ri-stop-circle-line"></i> 终止</button>
+                    <button id="exportBtn1" class="btn btn-outline" disabled><i class="ri-download-line"></i> 导出结果 CSV</button>
+                    <span id="statusMsg1" style="font-size:0.75rem; color:#5b6e8c; margin-left:auto;"></span>
+                </div>
+                <div class="progress-wrapper">
+                    <div class="progress-bar"><div id="progressFill1" class="progress-fill"></div></div>
+                </div>
+                <div class="log-area" id="logArea1">[第一环节] 就绪，上传CSV后配置标识字段即可开始。输出8个维度：用户旅程环节、判定理由、使用场景、表面诉求、情绪偏向、具象问题、底层需求、改善机会点。</div>
+                <div class="table-wrapper" id="tablePreviewWrapper1"><table id="previewTable1"><thead><tr><th>暂无数据</th></tr></thead><tbody><tr><td>请上传CSV文件</td></tr></tbody></table></div>
+            </div>
+        </div>
+
+        <!-- 第二环节卡片 -->
+        <div class="stage-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <h2>环节二 · 智能报告归纳</h2>
+                    <span class="stage-badge">聚合分析</span>
+                </div>
+                <button class="config-trigger" id="openStage2ConfigBtn">
+                    <i class="ri-settings-3-line"></i> 模型配置 & 提示词
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="form-row" style="margin-bottom: 16px;">
+                    <div class="form-group">
+                        <label>📎 数据来源</label>
+                        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                            <button id="loadFromFirstStageBtn" class="btn btn-outline" style="background:#f1f5f9;"><i class="ri-database-2-line"></i> 复用环节一结果</button>
+                            <button id="uploadSecondCSVBtn" class="btn btn-outline"><i class="ri-upload-line"></i> 上传新CSV</button>
+                        </div>
+                        <input type="file" id="secondCsvFile" accept=".csv" style="display: none;">
+                        <div id="secondDataSourceInfo" class="info-badge" style="margin-top: 8px; background:#f1f5f9;">⚡ 未加载数据，请点击上方按钮导入</div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>🏷️ 实体字段 (多选)</label>
+                        <select id="entityFieldsSelect" multiple size="3" disabled></select>
+                        <div class="multi-select-hint">Ctrl+多选，作为分组依据</div>
+                    </div>
+                    <div class="form-group">
+                        <label>📋 分析归纳字段 (多选)</label>
+                        <select id="analysisFieldsSelect" multiple size="3" disabled></select>
+                        <div class="multi-select-hint">如：用户表面诉求、具象问题、底层需求等</div>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <button id="generateReportBtn" class="btn btn-purple" disabled><i class="ri-file-copy-line"></i> 生成HTML分析报告</button>
+                    <button id="downloadReportBtn" class="btn btn-outline" disabled><i class="ri-save-line"></i> 下载报告</button>
+                </div>
+                <div class="progress-wrapper"><div class="progress-bar"><div id="progressFill2" class="progress-fill" style="background:#8b5cf6;"></div></div></div>
+                <div class="log-area" id="logArea2">[第二环节] 等待加载数据，选择实体和分析字段。</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第一环节配置弹窗（新增并行条数配置） -->
+    <div id="stage1Modal" class="modal-mask">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3><i class="ri-brain-line"></i> 环节一 · 模型与提示词</h3>
+                <i class="ri-close-line close-icon" data-modal="stage1Modal"></i>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>API Base URL</label>
+                    <input type="text" id="modalApiBase1" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="modalApiKey1" placeholder="sk-xxx">
+                </div>
+                <div class="form-group">
+                    <label>Model Name</label>
+                    <input type="text" id="modalModelName1" placeholder="gpt-3.5-turbo">
+                </div>
+                <div class="form-group">
+                    <label>⚙️ 每批传给大模型的条数</label>
+                    <input type="number" id="modalBatchSize1" min="1" max="20" value="5">
+                </div>
+                <!-- 新增：并行流程条数 -->
+                <div class="form-group">
+                    <label>⚡ 并行流程条数（同时发起的请求数）</label>
+                    <input type="number" id="modalConcurrency1" min="1" max="20" value="2">
+                    <div style="font-size:0.7rem; color:var(--muted); margin-top:4px;">建议 1~5，过高可能触发 API 限流</div>
+                </div>
+                <div class="form-group">
+                    <label>📝 分析提示词（支持 {{input_list}}）</label>
+                    <textarea id="modalPrompt1" rows="6" style="font-family: monospace;"></textarea>
+                    <button id="resetPromptModal1" class="btn btn-outline" style="margin-top: 8px;">恢复默认提示词</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" data-modal="stage1Modal">取消</button>
+                <button class="btn btn-primary" id="saveStage1Config">保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第二环节配置弹窗（无变化） -->
+    <div id="stage2Modal" class="modal-mask">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3><i class="ri-bar-chart-2-line"></i> 环节二 · 报告生成配置</h3>
+                <i class="ri-close-line close-icon" data-modal="stage2Modal"></i>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>报告 API Base URL</label>
+                    <input type="text" id="modalApiBase2" placeholder="https://api.deepseek.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="modalApiKey2" placeholder="sk-xxxx">
+                </div>
+                <div class="form-group">
+                    <label>Model Name</label>
+                    <input type="text" id="modalModelName2" placeholder="deepseek-chat">
+                </div>
+                <div class="form-group">
+                    <label>📝 报告提示词 (支持 {{groupedData}})</label>
+                    <textarea id="modalReportPrompt" rows="6" style="font-family: monospace;"></textarea>
+                    <button id="resetReportPromptModal" class="btn btn-outline" style="margin-top: 8px;">恢复默认报告提示词</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" data-modal="stage2Modal">取消</button>
+                <button class="btn btn-purple" id="saveStage2Config">保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ======================= 弹窗控制 =======================
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.remove('active');
+        }
+        document.querySelectorAll('[data-modal]').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const modalId = el.getAttribute('data-modal');
+                if (modalId) closeModal(modalId);
+            });
+        });
+        document.getElementById('openStage1ConfigBtn')?.addEventListener('click', () => openModal('stage1Modal'));
+        document.getElementById('openStage2ConfigBtn')?.addEventListener('click', () => openModal('stage2Modal'));
+        document.querySelectorAll('.modal-mask').forEach(mask => {
+            mask.addEventListener('click', (e) => {
+                if (e.target === mask) mask.classList.remove('active');
+            });
+        });
+
+        // ======================= 隐藏配置域（增加 concurrency1） =======================
+        const hiddenContainer = document.createElement('div');
+        hiddenContainer.style.display = 'none';
+        hiddenContainer.innerHTML = `
+            <input id="apiBaseUrl1" value="https://api.openai.com/v1">
+            <input id="apiKey1" value="">
+            <input id="modelName1" value="gpt-3.5-turbo">
+            <input id="batchSize1" value="5">
+            <input id="concurrency1" value="2">
+            <textarea id="promptTemplate1"></textarea>
+            <input id="apiBaseUrl2" value="https://api.deepseek.com/v1">
+            <input id="apiKey2" value="">
+            <input id="modelName2" value="deepseek-chat">
+            <textarea id="reportPromptTemplate"></textarea>
+        `;
+        document.body.appendChild(hiddenContainer);
+
+        const originalApiBase1 = document.getElementById('apiBaseUrl1');
+        const originalApiKey1 = document.getElementById('apiKey1');
+        const originalModel1 = document.getElementById('modelName1');
+        const originalBatchSize1 = document.getElementById('batchSize1');
+        const originalConcurrency1 = document.getElementById('concurrency1');
+        const originalPrompt1 = document.getElementById('promptTemplate1');
+        const originalApiBase2 = document.getElementById('apiBaseUrl2');
+        const originalApiKey2 = document.getElementById('apiKey2');
+        const originalModel2 = document.getElementById('modelName2');
+        const originalReportPrompt = document.getElementById('reportPromptTemplate');
+
+        const modalApiBase1 = document.getElementById('modalApiBase1');
+        const modalApiKey1 = document.getElementById('modalApiKey1');
+        const modalModel1 = document.getElementById('modalModelName1');
+        const modalBatch1 = document.getElementById('modalBatchSize1');
+        const modalConcurrency1 = document.getElementById('modalConcurrency1');
+        const modalPrompt1 = document.getElementById('modalPrompt1');
+        const modalApiBase2 = document.getElementById('modalApiBase2');
+        const modalApiKey2 = document.getElementById('modalApiKey2');
+        const modalModel2 = document.getElementById('modalModelName2');
+        const modalReportPrompt = document.getElementById('modalReportPrompt');
+
+        // ===== 8个输出字段常量 =====
+        const OUTPUT_FIELDS = [
+            '用户旅程环节',
+            '用户旅程环节的判定理由',
+            '使用场景',
+            '用户表面诉求',
+            '情绪偏向与感受',
+            '具象问题（"部位+现象"）',
+            '用户底层需求 (JTBD & 预期&用户关注点)',
+            '改善机会点'
+        ];
+
+        // ===== 默认提示词 =====
+        function getDefaultPrompt1() {
+            return `### 分析目标和要求
+        我正在针对破壁机产品线的产品做退货原因分析。请对每条用户反馈进行深度分析，从以下8个维度提取信息，目标是找到改善产品和服务体验、提升用户体验和满意度的机会点。
+
+        ### 8个分析维度定义
+        1. 用户旅程环节：用户在使用产品过程中所处阶段，如"开箱体验"、"首次使用"、"日常使用"、"清洁维护"、"故障报修"、"退货流程"等。
+        2. 用户旅程环节的判定理由：简要说明为何将该条反馈归入上述旅程环节，引用原文关键信息。
+        3. 使用场景：用户使用产品时的具体场景，如"制作豆浆"、"打果汁"、"研磨干粉"、"加热饮品"等。
+        4. 用户表面诉求：用户直接表达的需求或抱怨，即用户说了什么，原文提炼。
+        5. 情绪偏向与感受：用户表达的情绪倾向，如"愤怒"、"失望"、"困惑"、"满意"、"担忧"等，以及情绪强度。
+        6. 具象问题（"部位+现象"）：问题发生的具体物理位置或功能模块（部位）及其具体表现（现象），如"盖子盖不紧"、"密封圈漏水"、"刀片不锋利"等。
+        7. 用户底层需求 (JTBD & 预期&用户关注点)：用户的深层需求，即用户真正想要达成的目标或期望，如"希望机器操作简单省心"、"期待使用寿命更长"等。
+        8. 改善机会点：针对该问题，产品或服务可以改进的具体方向或建议。
+
+        ### 输出格式要求
+        我将给你一批文本（每一条用序号和点号开头，换行分隔）。请为每条文本输出一个JSON数组，数组元素个数必须严格等于输入文本条数，顺序保持一致。
+        每个元素是一个对象，包含以下8个字段（**字段名请使用英文**）：
+        - "user_journey": 用户旅程环节
+        - "journey_reason": 用户旅程环节的判定理由
+        - "usage_scenario": 使用场景
+        - "surface_demand": 用户表面诉求
+        - "emotion_bias": 情绪偏向与感受
+        - "concrete_problem": 具象问题（"部位+现象"）
+        - "underlying_need": 用户底层需求 (JTBD & 预期&用户关注点)
+        - "improvement_opportunity": 改善机会点
+
+        如果某条文本信息不足，对应字段填写空字符串""，但绝不能缺少该条目的对象。
+        输出必须是合法的JSON数组，不要有任何额外文字或解释。
+
+        输入文本列表：
+        {{input_list}}
+
+        请直接输出JSON数组：`;
+        }
+
+        function getDefaultReportPrompt() {
+            return `你是一个专业的数据分析师。根据以下按实体分组的数据（包含"实体"和该实体下的分析归纳字段列表，以及每条原始文本），生成一份完整的HTML分析报告。
+        要求：
+        1. 报告结构清晰，包含标题、按实体分组的章节。
+        2. 对于每个实体，展示：
+           - 实体名称
+           - 对该实体下所有"分析归纳"字段的内容进行归纳总结（每个字段独立归纳，例如"用户表面诉求"的共性，"具象问题"的共性）。
+           - 保留原始明细列表（原文）。
+        3. 报告风格专业，使用现代CSS（内联或style标签），响应式。
+        4. 只返回完整的HTML代码，不要任何额外解释。
+
+        数据格式为JSON对象：{ "entities": [ { "entity_name": "实体值", "analysis_fields": { "字段名1": [ "原文1","原文2" ], "字段名2": [...] } } ] }
+        以下是需要分析的数据（请严格按此数据结构处理）：
+        {{groupedData}}`;
+        }
+
+        // ===== 同步函数（包含 concurrency） =====
+        function syncStage1ToModal() {
+            modalApiBase1.value = originalApiBase1.value;
+            modalApiKey1.value = originalApiKey1.value;
+            modalModel1.value = originalModel1.value;
+            modalBatch1.value = originalBatchSize1.value;
+            modalConcurrency1.value = originalConcurrency1.value;
+            modalPrompt1.value = originalPrompt1.value;
+        }
+
+        function syncStage1FromModal() {
+            originalApiBase1.value = modalApiBase1.value;
+            originalApiKey1.value = modalApiKey1.value;
+            originalModel1.value = modalModel1.value;
+            originalBatchSize1.value = modalBatch1.value;
+            originalConcurrency1.value = modalConcurrency1.value;
+            originalPrompt1.value = modalPrompt1.value;
+        }
+
+        function syncStage2ToModal() {
+            modalApiBase2.value = originalApiBase2.value;
+            modalApiKey2.value = originalApiKey2.value;
+            modalModel2.value = originalModel2.value;
+            modalReportPrompt.value = originalReportPrompt.value;
+        }
+
+        function syncStage2FromModal() {
+            originalApiBase2.value = modalApiBase2.value;
+            originalApiKey2.value = modalApiKey2.value;
+            originalModel2.value = modalModel2.value;
+            originalReportPrompt.value = modalReportPrompt.value;
+        }
+
+        // 初始化
+        originalPrompt1.value = getDefaultPrompt1();
+        originalReportPrompt.value = getDefaultReportPrompt();
+        syncStage1ToModal();
+        syncStage2ToModal();
+
+        document.getElementById('resetPromptModal1')?.addEventListener('click', () => {
+            modalPrompt1.value = getDefaultPrompt1();
+        });
+        document.getElementById('resetReportPromptModal')?.addEventListener('click', () => {
+            modalReportPrompt.value = getDefaultReportPrompt();
+        });
+        document.getElementById('saveStage1Config')?.addEventListener('click', () => {
+            syncStage1FromModal();
+            closeModal('stage1Modal');
+            addLog('第一环节配置已更新', 'logArea1');
+        });
+        document.getElementById('saveStage2Config')?.addEventListener('click', () => {
+            syncStage2FromModal();
+            closeModal('stage2Modal');
+            addLog('报告生成配置已更新', 'logArea2');
+        });
+
+        function addLog(msg, areaId, isErr) {
+            const logDiv = document.getElementById(areaId);
+            if (!logDiv) return;
+            const p = document.createElement('div');
+            p.style.color = isErr ? '#f87171' : '#a5f3fc';
+            p.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logDiv.appendChild(p);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            if (logDiv.children.length > 200) logDiv.removeChild(logDiv.firstChild);
+        }
+
+        // ================================================================
+        //  第一环节 · 完整业务逻辑（8字段 + 并发控制）
+        // ================================================================
+        (function initStage1() {
+            let rawData1 = [],
+                originalColumns1 = [],
+                idField1 = "",
+                textField1 = "",
+                isProcessing1 = false,
+                stopRequested1 = false;
+            const fileInput1 = document.getElementById('csvFileInput1');
+            const idSelect1 = document.getElementById('idFieldSelect1');
+            const textSelect1 = document.getElementById('textFieldSelect1');
+            const startBtn1 = document.getElementById('startProcessBtn1');
+            const cancelBtn1 = document.getElementById('cancelProcessBtn1');
+            const exportBtn1 = document.getElementById('exportBtn1');
+            const progressFill1 = document.getElementById('progressFill1');
+            const logArea1 = document.getElementById('logArea1');
+            const previewTable1 = document.getElementById('previewTable1');
+            const statusMsg1 = document.getElementById('statusMsg1');
+
+            function escapeHtml(s) { return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } [
+                m
+            ])); }
+
+            function renderTable1() {
+                if (!rawData1.length) {
+                    previewTable1.innerHTML =
+                        '<thead><tr><th>暂无数据</th></tr></thead><tbody><tr><td>请上传CSV</td></tr></tbody>';
+                    return;
+                }
+                const allCols = [...originalColumns1, ...OUTPUT_FIELDS];
+                const thead = `<thead><tr>${allCols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>`;
+                const tbody = rawData1.map(row =>
+                    `<tr>${allCols.map(c => `<td>${escapeHtml(String(row[c] ?? ''))}</td>`).join('')}</tr>`
+                ).join('');
+                previewTable1.innerHTML = thead + `<tbody>${tbody}</tbody>`;
+            }
+
+            function updateSelectors1(cols) {
+                idSelect1.innerHTML = '<option value="">— 选择唯一标识 —</option>' +
+                    cols.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${escapeHtml(c)}</option>`).join('');
+                textSelect1.innerHTML = '<option value="">— 选择待处理字段 —</option>' +
+                    cols.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${escapeHtml(c)}</option>`).join('');
+                idSelect1.disabled = false;
+                textSelect1.disabled = false;
+            }
+
+            function initRowWithFields(row) {
+                const newRow = { ...row };
+                OUTPUT_FIELDS.forEach(f => newRow[f] = '');
+                return newRow;
+            }
+
+            fileInput1.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (res) => {
+                        if (!res.data.length) { addLog('无数据', 'logArea1', true); return; }
+                        rawData1 = res.data.map(row => initRowWithFields(row));
+                        originalColumns1 = res.meta.fields || [];
+                        updateSelectors1(originalColumns1);
+                        renderTable1();
+                        addLog(`加载成功，共 ${rawData1.length} 行`, 'logArea1');
+                        startBtn1.disabled = false;
+                        exportBtn1.disabled = true;
+                        isProcessing1 = false;
+                        progressFill1.style.width = '0%';
+                    },
+                    error: (err) => addLog(`解析错误: ${err.message}`, 'logArea1', true)
+                });
+            });
+
+            // 调用大模型（单个批次）
+            async function callBatch(batchItems) {
+                const base = originalApiBase1.value.trim().replace(/\/$/, ''),
+                    key = originalApiKey1.value.trim(),
+                    model = originalModel1.value.trim();
+                if (!key || !base || !model) throw new Error("API配置不全");
+                const prompt = originalPrompt1.value;
+                const inputStr = batchItems.map((it, idx) => `${idx+1}. ${it.textContent}`).join('\n');
+                const userMsg = prompt.replace(/{{input_list}}/g, inputStr);
+                const resp = await fetch(`${base}/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                    body: JSON.stringify({
+                        model,
+                        messages: [{ role: "system", content: "输出JSON数组" }, { role: "user",
+                            content: userMsg }],
+                        temperature: 0.2
+                    })
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                const content = data.choices?.[0]?.message?.content;
+                if (!content) throw new Error("空响应");
+                let arr;
+                try {
+                    const match = content.match(/\[\s*\{.*?\}\s*\]/s);
+                    arr = JSON.parse(match ? match[0] : content);
+                } catch (e) {
+                    throw new Error("JSON解析失败");
+                }
+                if (arr.length !== batchItems.length) throw new Error("数量不匹配");
+
+                // 英文→中文映射
+                const map = {
+                    'user_journey': '用户旅程环节',
+                    'journey_reason': '用户旅程环节的判定理由',
+                    'usage_scenario': '使用场景',
+                    'surface_demand': '用户表面诉求',
+                    'emotion_bias': '情绪偏向与感受',
+                    'concrete_problem': '具象问题（"部位+现象"）',
+                    'underlying_need': '用户底层需求 (JTBD & 预期&用户关注点)',
+                    'improvement_opportunity': '改善机会点'
+                };
+                return arr.map(item => {
+                    const mapped = {};
+                    for (const [en, zh] of Object.entries(map)) {
+                        mapped[zh] = (item[en] ?? item[zh] ?? '');
+                    }
+                    return mapped;
+                });
+            }
+
+            // 启动处理（含并发控制）
+            startBtn1.addEventListener('click', async () => {
+                if (isProcessing1) return;
+                idField1 = idSelect1.value;
+                textField1 = textSelect1.value;
+                if (!idField1 || !textField1 || !rawData1.length) {
+                    addLog("请完整选择字段并加载数据", 'logArea1', true);
+                    return;
+                }
+                stopRequested1 = false;
+                isProcessing1 = true;
+                startBtn1.disabled = true;
+                cancelBtn1.disabled = false;
+                exportBtn1.disabled = true;
+
+                // 重置输出字段
+                for (let r of rawData1) {
+                    OUTPUT_FIELDS.forEach(f => r[f] = '');
+                }
+                renderTable1();
+
+                const items = rawData1.map((row, idx) => ({
+                    index: idx,
+                    idValue: String(row[idField1]),
+                    textContent: String(row[textField1] || '')
+                })).filter(i => i.textContent.trim());
+
+                const batchSize = parseInt(originalBatchSize1.value) || 5;
+                const concurrency = parseInt(originalConcurrency1.value) || 2;
+                const batches = [];
+                for (let i = 0; i < items.length; i += batchSize) batches.push(items.slice(i, i + batchSize));
+                let processed = 0;
+                const total = items.length;
+
+                // 按并发度分组
+                const groups = [];
+                for (let i = 0; i < batches.length; i += concurrency) {
+                    groups.push(batches.slice(i, i + concurrency));
+                }
+
+                addLog(`总批次 ${batches.length}，并发数 ${concurrency}，分组数 ${groups.length}`, 'logArea1');
+
+                for (let g = 0; g < groups.length; g++) {
+                    if (stopRequested1) break;
+                    const group = groups[g];
+                    const promises = group.map(batch => callBatch(batch).catch(err => {
+                        // 单个批次失败，抛出错误终止整个组
+                        throw new Error(`批次失败: ${err.message}`);
+                    }));
+                    try {
+                        const resultsArray = await Promise.all(promises);
+                        // 处理本组所有批次的结果
+                        for (let i = 0; i < group.length; i++) {
+                            const batch = group[i];
+                            const results = resultsArray[i];
+                            for (let j = 0; j < batch.length; j++) {
+                                const item = batch[j];
+                                const row = rawData1[item.index];
+                                for (const f of OUTPUT_FIELDS) {
+                                    row[f] = results[j][f] || '';
+                                }
+                            }
+                            processed += batch.length;
+                            const percent = Math.floor(processed / total * 100);
+                            progressFill1.style.width = `${percent}%`;
+                            renderTable1();
+                            addLog(`进度: ${processed}/${total} (${percent}%)`, 'logArea1');
+                        }
+                    } catch (e) {
+                        addLog(`组处理失败: ${e.message}`, 'logArea1', true);
+                        break;
+                    }
+                    // 每组完成后稍作延迟，避免过载
+                    await new Promise(r => setTimeout(r, 200));
+                }
+
+                isProcessing1 = false;
+                startBtn1.disabled = false;
+                cancelBtn1.disabled = true;
+                exportBtn1.disabled = false;
+                if (processed === total) addLog("处理完成，可导出", 'logArea1');
+                else addLog("处理中断", 'logArea1');
+            });
+
+            cancelBtn1.addEventListener('click', () => { stopRequested1 = true; });
+
+            exportBtn1.addEventListener('click', () => {
+                if (!rawData1.length) return;
+                const cols = [...originalColumns1, ...OUTPUT_FIELDS];
+                const exportData = rawData1.map(row => {
+                    const o = {};
+                    cols.forEach(c => o[c] = row[c] ?? '');
+                    return o;
+                });
+                const csv = Papa.unparse(exportData, { quotes: true });
+                const blob = new Blob(["\uFEFF" + csv], { type: "text/csv" });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = "stage1_result.csv";
+                link.click();
+                URL.revokeObjectURL(link.href);
+                addLog("导出完成", 'logArea1');
+            });
+
+            // 暴露给第二环节
+            window.getFirstStageData = () => ({
+                rawData: rawData1,
+                columns: [...originalColumns1, ...OUTPUT_FIELDS],
+                hasData: rawData1.length > 0
+            });
+        })();
+
+
+        // ================================================================
+        //  第二环节 · 完整业务逻辑（无改动）
+        // ================================================================
+        (function initStage2() {
+            let secondRawData = [],
+                secondColumns = [];
+            const loadFirstBtn = document.getElementById('loadFromFirstStageBtn');
+            const uploadSecondBtn = document.getElementById('uploadSecondCSVBtn');
+            const secondFileInput = document.getElementById('secondCsvFile');
+            const dataSourceInfo = document.getElementById('secondDataSourceInfo');
+            const entitySelect = document.getElementById('entityFieldsSelect');
+            const analysisSelect = document.getElementById('analysisFieldsSelect');
+            const generateBtn = document.getElementById('generateReportBtn');
+            const downloadReportBtn = document.getElementById('downloadReportBtn');
+            const logArea2 = document.getElementById('logArea2');
+            const progressFill2 = document.getElementById('progressFill2');
+            let generatedHtml = "";
+
+            function addLog2(msg, isErr) {
+                const d = logArea2;
+                if (!d) return;
+                const p = document.createElement('div');
+                p.style.color = isErr ? '#fda4af' : '#c4b5fd';
+                p.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                d.appendChild(p);
+                d.scrollTop = d.scrollHeight;
+                if (d.children.length > 200) d.removeChild(d.firstChild);
+            }
+
+            function updateSelectors2() {
+                const cols = secondColumns;
+                entitySelect.innerHTML = '';
+                analysisSelect.innerHTML = '';
+                if (!cols.length) {
+                    entitySelect.disabled = true;
+                    analysisSelect.disabled = true;
+                    entitySelect.innerHTML = '<option disabled>无数据</option>';
+                    analysisSelect.innerHTML = '<option disabled>无数据</option>';
+                    return;
+                }
+                entitySelect.disabled = false;
+                analysisSelect.disabled = false;
+                cols.forEach(col => {
+                    const o1 = document.createElement('option');
+                    o1.value = col;
+                    o1.textContent = col;
+                    entitySelect.appendChild(o1);
+                    const o2 = document.createElement('option');
+                    o2.value = col;
+                    o2.textContent = col;
+                    analysisSelect.appendChild(o2);
+                });
+            }
+
+            function loadData(dataRows, colNames, src) {
+                secondRawData = dataRows.map(r => ({ ...r }));
+                secondColumns = [...colNames];
+                const preview = colNames.slice(0, 4).join(', ') + (colNames.length > 4 ? ' ...' : '');
+                dataSourceInfo.innerHTML =
+                    `✅ 已加载数据：${secondRawData.length} 行，来源: ${src}。列: ${preview}`;
+                updateSelectors2();
+                generateBtn.disabled = false;
+                downloadReportBtn.disabled = true;
+                generatedHtml = '';
+                addLog2(`数据加载成功，行数=${secondRawData.length}`);
+            }
+
+            loadFirstBtn?.addEventListener('click', () => {
+                const stage1 = window.getFirstStageData();
+                if (stage1 && stage1.hasData) {
+                    loadData(stage1.rawData, stage1.columns, "第一环节结果");
+                } else {
+                    addLog2("第一环节无数据，请先在第一环节上传并处理CSV", true);
+                }
+            });
+
+            uploadSecondBtn?.addEventListener('click', () => { secondFileInput.click(); });
+            secondFileInput?.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (res) => {
+                        if (!res.data.length) { addLog2("CSV无数据", true); return; }
+                        loadData(res.data, res.meta.fields || [], "上传CSV");
+                    },
+                    error: (err) => addLog2(`解析失败: ${err.message}`, true)
+                });
+            });
+
+            async function callReportAPI(groupedData) {
+                const base = originalApiBase2.value.trim().replace(/\/$/, ''),
+                    key = originalApiKey2.value.trim(),
+                    model = originalModel2.value.trim();
+                if (!base || !key || !model) throw new Error("报告API配置不完整");
+                let prompt = originalReportPrompt.value;
+                const jsonStr = JSON.stringify(groupedData, null, 2);
+                prompt = prompt.replace(/{{groupedData}}/g, jsonStr);
+                const resp = await fetch(`${base}/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                    body: JSON.stringify({
+                        model,
+                        messages: [{ role: "system", content: "生成HTML报告" }, { role: "user",
+                            content: prompt }],
+                        temperature: 0.5
+                    })
+                });
+                if (!resp.ok) throw new Error(`API错误 ${resp.status}`);
+                const data = await resp.json();
+                let content = data.choices?.[0]?.message?.content;
+                if (!content) throw new Error("AI未返回内容");
+                const codeMatch = content.match(/```html\n([\s\S]*?)\n```/i);
+                if (codeMatch) content = codeMatch[1];
+                return content;
+            }
+
+            generateBtn?.addEventListener('click', async () => {
+                if (!secondRawData.length) { addLog2("无数据", true); return; }
+                const selectedEntities = Array.from(entitySelect.selectedOptions).map(opt => opt.value);
+                const selectedAnalysis = Array.from(analysisSelect.selectedOptions).map(opt => opt.value);
+                if (selectedEntities.length === 0 || selectedAnalysis.length === 0) {
+                    addLog2("请至少选择一个实体字段和一个分析归纳字段", true);
+                    return;
+                }
+                const groups = new Map();
+                for (const row of secondRawData) {
+                    const entityParts = selectedEntities.map(f => String(row[f] ?? '空')).filter(p => p.trim());
+                    const entityKey = entityParts.join('|') || '未分类';
+                    const entityDisplay = selectedEntities.map(f => `${f}:${row[f]??'空'}`).join(' / ');
+                    if (!groups.has(entityKey)) groups.set(entityKey, { entityDisplay, analysisMap: new Map() });
+                    const group = groups.get(entityKey);
+                    for (const af of selectedAnalysis) {
+                        const val = String(row[af] ?? '');
+                        if (!val.trim()) continue;
+                        if (!group.analysisMap.has(af)) group.analysisMap.set(af, []);
+                        group.analysisMap.get(af).push(val);
+                    }
+                }
+                const groupedArray = [];
+                for (let [key, grp] of groups.entries()) {
+                    const fieldsObj = {};
+                    for (let [fname, texts] of grp.analysisMap.entries()) fieldsObj[fname] = texts;
+                    groupedArray.push({ entity_name: grp.entityDisplay, analysis_fields: fieldsObj });
+                }
+                if (groupedArray.length === 0) { addLog2("没有有效数据可分组", true); return; }
+                try {
+                    progressFill2.style.width = "30%";
+                    addLog2("请求AI生成报告...");
+                    const html = await callReportAPI(groupedArray);
+                    generatedHtml = html;
+                    progressFill2.style.width = "100%";
+                    downloadReportBtn.disabled = false;
+                    addLog2("报告生成成功，可下载");
+                } catch (e) {
+                    addLog2(`报告失败: ${e.message}`, true);
+                    progressFill2.style.width = "0%";
+                }
+            });
+
+            downloadReportBtn?.addEventListener('click', () => {
+                if (!generatedHtml) { addLog2("无报告内容", true); return; }
+                const blob = new Blob([generatedHtml], { type: "text/html" });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `report_${Date.now()}.html`;
+                link.click();
+                URL.revokeObjectURL(link.href);
+                addLog2("报告已下载");
+            });
+
+            addLog2("第二环节就绪，等待加载数据", false);
+        })();
+    </script>
+</body>
+</html>
