@@ -8,7 +8,7 @@
     </script>
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet">
     <style>
-        /* ===== 样式完全保留，与前一致（省略重复内容，实际部署时请保留完整样式） ===== */
+        /* ===== 样式保持不变（与之前完全一致，为节省篇幅此处省略，实际部署请保留完整样式） ===== */
         :root {
             --ink: #17201a;
             --muted: #657064;
@@ -466,7 +466,7 @@
         }
 
         // ================================================================
-        //  第一环节 · 完整业务逻辑（带重试与容错）
+        //  第一环节 · 完整业务逻辑（无重试，仅独立批次容错）
         // ================================================================
         (function initStage1() {
             let rawData1 = [],
@@ -540,55 +540,7 @@
                 });
             });
 
-            // ========== 🚀 增强：带重试的单个批次调用 ==========
-            async function callBatchWithRetry(batchItems, retries = 2) {
-                let lastError = null;
-                for (let attempt = 1; attempt <= retries + 1; attempt++) {
-                    try {
-                        const result = await callBatch(batchItems);
-                        // 检查数量是否匹配
-                        if (result.length === batchItems.length) {
-                            return result;
-                        } else {
-                            const errMsg =
-                                `输出数量不匹配：输入 ${batchItems.length} 条，返回 ${result.length} 条 (尝试 ${attempt}/${retries+1})`;
-                            addLog(errMsg, 'logArea1', true);
-                            if (attempt <= retries) {
-                                // 等待后重试
-                                await new Promise(r => setTimeout(r, 1000 * attempt));
-                                continue;
-                            } else {
-                                // 最后一次仍不匹配，补齐缺失条目并返回
-                                const filled = fillMissingResults(result, batchItems.length);
-                                addLog(`⚠️ 已自动补齐为 ${filled.length} 条，请检查数据完整性`, 'logArea1', true);
-                                return filled;
-                            }
-                        }
-                    } catch (e) {
-                        lastError = e;
-                        if (attempt <= retries) {
-                            addLog(`批次调用失败 (${attempt}/${retries+1}): ${e.message}，等待重试...`, 'logArea1', true);
-                            await new Promise(r => setTimeout(r, 1000 * attempt));
-                        } else {
-                            throw new Error(`重试 ${retries} 次后仍失败: ${e.message}`);
-                        }
-                    }
-                }
-                throw new Error(`无法完成批次调用: ${lastError?.message || '未知错误'}`);
-            }
-
-            // 补齐结果：如果返回数组小于预期，用空对象填充
-            function fillMissingResults(partial, expectedLen) {
-                const filled = [];
-                const emptyObj = {};
-                OUTPUT_FIELDS.forEach(f => emptyObj[f] = '');
-                for (let i = 0; i < expectedLen; i++) {
-                    filled.push(i < partial.length ? partial[i] : { ...emptyObj });
-                }
-                return filled;
-            }
-
-            // 原始 callBatch（内部实现，不包含重试逻辑）
+            // 单次调用大模型（无重试）
             async function callBatch(batchItems) {
                 const base = originalApiBase1.value.trim().replace(/\/$/, ''),
                     key = originalApiKey1.value.trim(),
@@ -638,7 +590,18 @@
                 });
             }
 
-            // 启动处理（含并发控制，每个批次独立容错）
+            // 补齐结果（返回全空或部分填充）
+            function fillMissingResults(partial, expectedLen) {
+                const filled = [];
+                const emptyObj = {};
+                OUTPUT_FIELDS.forEach(f => emptyObj[f] = '');
+                for (let i = 0; i < expectedLen; i++) {
+                    filled.push(i < partial.length ? partial[i] : { ...emptyObj });
+                }
+                return filled;
+            }
+
+            // 启动处理（无重试，仅独立容错）
             startBtn1.addEventListener('click', async () => {
                 if (isProcessing1) return;
                 idField1 = idSelect1.value;
@@ -671,7 +634,6 @@
                 let processed = 0;
                 const total = items.length;
 
-                // 按并发度分组
                 const groups = [];
                 for (let i = 0; i < batches.length; i += concurrency) {
                     groups.push(batches.slice(i, i + concurrency));
@@ -682,27 +644,33 @@
                 for (let g = 0; g < groups.length; g++) {
                     if (stopRequested1) break;
                     const group = groups[g];
-                    // 每个批次独立调用，捕获错误后继续处理其他批次
-                    const promises = group.map((batch, idx) => {
-                        return callBatchWithRetry(batch, 2).catch(err => {
-                            // 若重试后仍失败，记录错误并返回一个填充的结果
-                            addLog(`❌ 第 ${g+1} 组第 ${idx+1} 批失败: ${err.message}，已填充空值`, 'logArea1', true);
-                            const emptyResults = batch.map(() => {
-                                const empty = {};
-                                OUTPUT_FIELDS.forEach(f => empty[f] = '');
-                                return empty;
-                            });
-                            return emptyResults;
-                        });
+
+                    // ✅ 每个批次独立执行，失败或数量不匹配时直接填充空值（无重试）
+                    const promises = group.map((batch) => {
+                        return (async () => {
+                            try {
+                                const result = await callBatch(batch);
+                                if (result.length === batch.length) {
+                                    return result;
+                                } else {
+                                    const msg =
+                                        `数量不匹配：输入 ${batch.length}，返回 ${result.length}，已填充空值`;
+                                    addLog(msg, 'logArea1', true);
+                                    return fillMissingResults(result, batch.length);
+                                }
+                            } catch (err) {
+                                addLog(`批次失败: ${err.message}，已填充空值`, 'logArea1', true);
+                                return fillMissingResults([], batch.length);
+                            }
+                        })();
                     });
 
                     try {
                         const resultsArray = await Promise.all(promises);
-                        // 合并本组所有批次的结果
                         for (let i = 0; i < group.length; i++) {
                             const batch = group[i];
                             const results = resultsArray[i];
-                            // 确保长度一致（如果返回长度不对，补齐）
+                            // 确保长度一致（若仍不一致则补齐）
                             const finalResults = (results.length === batch.length) ? results :
                                 fillMissingResults(results, batch.length);
                             for (let j = 0; j < batch.length; j++) {
@@ -719,11 +687,10 @@
                             addLog(`进度: ${processed}/${total} (${percent}%)`, 'logArea1');
                         }
                     } catch (e) {
-                        // 理论上不会到这里，因为每个批次都独立捕获了
+                        // 理论上不会触发，因为每个批次都已捕获
                         addLog(`组处理异常: ${e.message}`, 'logArea1', true);
                         break;
                     }
-                    // 组间延迟
                     await new Promise(r => setTimeout(r, 200));
                 }
 
