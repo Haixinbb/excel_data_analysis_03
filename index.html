@@ -8,7 +8,7 @@
     </script>
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet">
     <style>
-        /* 样式保持不变，省略...（与之前完全一致） */
+        /* ===== 样式完全保留，与前一致（省略重复内容，实际部署时请保留完整样式） ===== */
         :root {
             --ink: #17201a;
             --muted: #657064;
@@ -200,7 +200,7 @@
         </div>
     </div>
 
-    <!-- 第一环节配置弹窗（新增并行条数配置） -->
+    <!-- 第一环节配置弹窗 -->
     <div id="stage1Modal" class="modal-mask">
         <div class="modal-container">
             <div class="modal-header">
@@ -224,7 +224,6 @@
                     <label>⚙️ 每批传给大模型的条数</label>
                     <input type="number" id="modalBatchSize1" min="1" max="20" value="5">
                 </div>
-                <!-- 新增：并行流程条数 -->
                 <div class="form-group">
                     <label>⚡ 并行流程条数（同时发起的请求数）</label>
                     <input type="number" id="modalConcurrency1" min="1" max="20" value="2">
@@ -243,7 +242,7 @@
         </div>
     </div>
 
-    <!-- 第二环节配置弹窗（无变化） -->
+    <!-- 第二环节配置弹窗 -->
     <div id="stage2Modal" class="modal-mask">
         <div class="modal-container">
             <div class="modal-header">
@@ -282,7 +281,6 @@
             const modal = document.getElementById(modalId);
             if (modal) modal.classList.add('active');
         }
-
         function closeModal(modalId) {
             const modal = document.getElementById(modalId);
             if (modal) modal.classList.remove('active');
@@ -301,7 +299,7 @@
             });
         });
 
-        // ======================= 隐藏配置域（增加 concurrency1） =======================
+        // ======================= 隐藏配置域 =======================
         const hiddenContainer = document.createElement('div');
         hiddenContainer.style.display = 'none';
         hiddenContainer.innerHTML = `
@@ -340,7 +338,6 @@
         const modalModel2 = document.getElementById('modalModelName2');
         const modalReportPrompt = document.getElementById('modalReportPrompt');
 
-        // ===== 8个输出字段常量 =====
         const OUTPUT_FIELDS = [
             '用户旅程环节',
             '用户旅程环节的判定理由',
@@ -352,7 +349,6 @@
             '改善机会点'
         ];
 
-        // ===== 默认提示词 =====
         function getDefaultPrompt1() {
             return `### 分析目标和要求
         我正在针对破壁机产品线的产品做退货原因分析。请对每条用户反馈进行深度分析，从以下8个维度提取信息，目标是找到改善产品和服务体验、提升用户体验和满意度的机会点。
@@ -404,7 +400,6 @@
         {{groupedData}}`;
         }
 
-        // ===== 同步函数（包含 concurrency） =====
         function syncStage1ToModal() {
             modalApiBase1.value = originalApiBase1.value;
             modalApiKey1.value = originalApiKey1.value;
@@ -437,7 +432,6 @@
             originalReportPrompt.value = modalReportPrompt.value;
         }
 
-        // 初始化
         originalPrompt1.value = getDefaultPrompt1();
         originalReportPrompt.value = getDefaultReportPrompt();
         syncStage1ToModal();
@@ -472,7 +466,7 @@
         }
 
         // ================================================================
-        //  第一环节 · 完整业务逻辑（8字段 + 并发控制）
+        //  第一环节 · 完整业务逻辑（带重试与容错）
         // ================================================================
         (function initStage1() {
             let rawData1 = [],
@@ -490,9 +484,8 @@
             const progressFill1 = document.getElementById('progressFill1');
             const logArea1 = document.getElementById('logArea1');
             const previewTable1 = document.getElementById('previewTable1');
-            const statusMsg1 = document.getElementById('statusMsg1');
 
-            function escapeHtml(s) { return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } [
+            function escapeHtml(s) { return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[
                 m
             ])); }
 
@@ -547,7 +540,55 @@
                 });
             });
 
-            // 调用大模型（单个批次）
+            // ========== 🚀 增强：带重试的单个批次调用 ==========
+            async function callBatchWithRetry(batchItems, retries = 2) {
+                let lastError = null;
+                for (let attempt = 1; attempt <= retries + 1; attempt++) {
+                    try {
+                        const result = await callBatch(batchItems);
+                        // 检查数量是否匹配
+                        if (result.length === batchItems.length) {
+                            return result;
+                        } else {
+                            const errMsg =
+                                `输出数量不匹配：输入 ${batchItems.length} 条，返回 ${result.length} 条 (尝试 ${attempt}/${retries+1})`;
+                            addLog(errMsg, 'logArea1', true);
+                            if (attempt <= retries) {
+                                // 等待后重试
+                                await new Promise(r => setTimeout(r, 1000 * attempt));
+                                continue;
+                            } else {
+                                // 最后一次仍不匹配，补齐缺失条目并返回
+                                const filled = fillMissingResults(result, batchItems.length);
+                                addLog(`⚠️ 已自动补齐为 ${filled.length} 条，请检查数据完整性`, 'logArea1', true);
+                                return filled;
+                            }
+                        }
+                    } catch (e) {
+                        lastError = e;
+                        if (attempt <= retries) {
+                            addLog(`批次调用失败 (${attempt}/${retries+1}): ${e.message}，等待重试...`, 'logArea1', true);
+                            await new Promise(r => setTimeout(r, 1000 * attempt));
+                        } else {
+                            throw new Error(`重试 ${retries} 次后仍失败: ${e.message}`);
+                        }
+                    }
+                }
+                throw new Error(`无法完成批次调用: ${lastError?.message || '未知错误'}`);
+            }
+
+            // 补齐结果：如果返回数组小于预期，用空对象填充
+            function fillMissingResults(partial, expectedLen) {
+                const filled = [];
+                const emptyObj = {};
+                OUTPUT_FIELDS.forEach(f => emptyObj[f] = '');
+                for (let i = 0; i < expectedLen; i++) {
+                    filled.push(i < partial.length ? partial[i] : { ...emptyObj });
+                }
+                return filled;
+            }
+
+            // 原始 callBatch（内部实现，不包含重试逻辑）
             async function callBatch(batchItems) {
                 const base = originalApiBase1.value.trim().replace(/\/$/, ''),
                     key = originalApiKey1.value.trim(),
@@ -577,9 +618,7 @@
                 } catch (e) {
                     throw new Error("JSON解析失败");
                 }
-                if (arr.length !== batchItems.length) throw new Error("数量不匹配");
-
-                // 英文→中文映射
+                // 映射字段
                 const map = {
                     'user_journey': '用户旅程环节',
                     'journey_reason': '用户旅程环节的判定理由',
@@ -599,7 +638,7 @@
                 });
             }
 
-            // 启动处理（含并发控制）
+            // 启动处理（含并发控制，每个批次独立容错）
             startBtn1.addEventListener('click', async () => {
                 if (isProcessing1) return;
                 idField1 = idSelect1.value;
@@ -614,7 +653,6 @@
                 cancelBtn1.disabled = false;
                 exportBtn1.disabled = true;
 
-                // 重置输出字段
                 for (let r of rawData1) {
                     OUTPUT_FIELDS.forEach(f => r[f] = '');
                 }
@@ -644,21 +682,34 @@
                 for (let g = 0; g < groups.length; g++) {
                     if (stopRequested1) break;
                     const group = groups[g];
-                    const promises = group.map(batch => callBatch(batch).catch(err => {
-                        // 单个批次失败，抛出错误终止整个组
-                        throw new Error(`批次失败: ${err.message}`);
-                    }));
+                    // 每个批次独立调用，捕获错误后继续处理其他批次
+                    const promises = group.map((batch, idx) => {
+                        return callBatchWithRetry(batch, 2).catch(err => {
+                            // 若重试后仍失败，记录错误并返回一个填充的结果
+                            addLog(`❌ 第 ${g+1} 组第 ${idx+1} 批失败: ${err.message}，已填充空值`, 'logArea1', true);
+                            const emptyResults = batch.map(() => {
+                                const empty = {};
+                                OUTPUT_FIELDS.forEach(f => empty[f] = '');
+                                return empty;
+                            });
+                            return emptyResults;
+                        });
+                    });
+
                     try {
                         const resultsArray = await Promise.all(promises);
-                        // 处理本组所有批次的结果
+                        // 合并本组所有批次的结果
                         for (let i = 0; i < group.length; i++) {
                             const batch = group[i];
                             const results = resultsArray[i];
+                            // 确保长度一致（如果返回长度不对，补齐）
+                            const finalResults = (results.length === batch.length) ? results :
+                                fillMissingResults(results, batch.length);
                             for (let j = 0; j < batch.length; j++) {
                                 const item = batch[j];
                                 const row = rawData1[item.index];
                                 for (const f of OUTPUT_FIELDS) {
-                                    row[f] = results[j][f] || '';
+                                    row[f] = finalResults[j][f] || '';
                                 }
                             }
                             processed += batch.length;
@@ -668,10 +719,11 @@
                             addLog(`进度: ${processed}/${total} (${percent}%)`, 'logArea1');
                         }
                     } catch (e) {
-                        addLog(`组处理失败: ${e.message}`, 'logArea1', true);
+                        // 理论上不会到这里，因为每个批次都独立捕获了
+                        addLog(`组处理异常: ${e.message}`, 'logArea1', true);
                         break;
                     }
-                    // 每组完成后稍作延迟，避免过载
+                    // 组间延迟
                     await new Promise(r => setTimeout(r, 200));
                 }
 
@@ -703,7 +755,6 @@
                 addLog("导出完成", 'logArea1');
             });
 
-            // 暴露给第二环节
             window.getFirstStageData = () => ({
                 rawData: rawData1,
                 columns: [...originalColumns1, ...OUTPUT_FIELDS],
@@ -711,9 +762,8 @@
             });
         })();
 
-
         // ================================================================
-        //  第二环节 · 完整业务逻辑（无改动）
+        //  第二环节（无改动）
         // ================================================================
         (function initStage2() {
             let secondRawData = [],
